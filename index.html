@@ -183,6 +183,34 @@ window.addEventListener('load', ()=>{
   setViewBoxNow(BASE_VB);
 });
 
+  function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
+
+// zoom-to-fit needs to be GLOBAL (not inside focusToSub)
+function zoomToFitRect(x, y, w, h, padding = 30){
+  const isPhone = window.matchMedia('(max-width: 640px)').matches;
+  const pad = isPhone ? padding * 1.2 : padding;
+
+  const rx = x - pad, ry = y - pad;
+  const rw = w + pad * 2, rh = h + pad * 2;
+
+  const scale = Math.min(BASE_VB.w / rw, BASE_VB.h / rh);
+  const clampedScale = Math.max(1.0, Math.min(scale, 2.6)); // slightly lower ceiling helps clipping
+
+  const targetW = BASE_VB.w / clampedScale;
+  const targetH = BASE_VB.h / clampedScale;
+
+  const cx = rx + rw/2;
+  const cy = ry + rh/2;
+
+  let vx = cx - targetW/2;
+  let vy = cy - targetH/2;
+
+  vx = clamp(vx, BASE_VB.x, BASE_VB.x + BASE_VB.w - targetW);
+  vy = clamp(vy, BASE_VB.y, BASE_VB.y + BASE_VB.h - targetH);
+
+  animateViewBox({ x:vx, y:vy, w:targetW, h:targetH }, 340);
+}
+
   
 /* ------------------ DATA ------------------ */
 /* 6 main circles. Each has 3 subcircles; each sub has 3 children; each child has one text. */
@@ -473,13 +501,24 @@ function renderMains(){
     const {x,y}=mainPositions[m.id];
     const g = el('g',{class:'node main', transform:`translate(${x},${y})`, tabindex:0, role:'button',
                       'data-id':m.id, 'aria-label':m.label});
-    g.dataset.home = 'translate(${sx}px,${sy}px) scale(1)';
     g.appendChild(el('circle',{class:'ring', r:MAIN_R+6}));
     const b = el('g',{class:'bubble'});
     b.appendChild(el('circle',{r:MAIN_R, fill:m.color}));
 const tMain = el('text', { class:'label' });
-wrapCircleLabel(tMain, m.label, MAIN_R * 1.8, 26, 14, 4, 20); // maxWidth, baseSize, lineHeight, centerY, min font size
+
+const isPhone = window.matchMedia('(max-width: 640px)').matches;
+wrapCircleLabel(
+  tMain,
+  m.label,
+  MAIN_R * (isPhone ? 1.7 : 1.8), // slightly narrower wrap on phone
+  isPhone ? 34 : 26,             // base font bigger on phone
+  isPhone ? 16 : 14,             // line height
+  4,
+  isPhone ? 24 : 20              // min font bigger on phone
+);
+
 b.appendChild(tMain);
+
     g.appendChild(b);
     g.addEventListener('click',()=>onMainClick(m.id));
     g.addEventListener('keydown',(e)=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();onMainClick(m.id);} });
@@ -666,44 +705,54 @@ function showCard(childId, text){
   focus.level = 3;
   focus.child = childId;
 
-  // locate the child node + its coordinates
   const node = gL2.querySelector(`.child[data-id="${childId}"]`);
   if(!node) return;
+
   const x = parseFloat(node.getAttribute('data-x'));
   const y = parseFloat(node.getAttribute('data-y'));
 
-  // card size
-  const cardW=290, cardH=140;
+  const cardW = 320, cardH = 170;
 
-  // Direction to push card outward (away from diagram center)
-  const angleFromCenter = Math.atan2(y - CENTER.y, x - CENTER.x);
-  const baseOffset = L2_R + 20;                      // gap from circle edge
-  const targetCx = x + Math.cos(angleFromCenter) * (baseOffset + cardW/2);
-  const targetCy = y + Math.sin(angleFromCenter) * (baseOffset + cardH/2);
-  const cardX = targetCx - cardW/2;
-  const cardY = targetCy - cardH/2;
+  // default: push outward from center
+  const angle = Math.atan2(y - CENTER.y, x - CENTER.x);
+  const baseOffset = L2_R + 18;
+  const targetCx = x + Math.cos(angle) * (baseOffset + cardW/2);
+  const targetCy = y + Math.sin(angle) * (baseOffset + cardH/2);
 
-  // Clear old UI and build pivot -> card
-  gUI.innerHTML='';
-  const pivot = el('g',{class:'pivot', transform:`translate(${x},${y}) scale(0.001)`});
-  const card = el('g',{class:'card', transform:`translate(${cardX - x},${cardY - y})`}); // relative to pivot
+  let cardX = targetCx - cardW/2;
+  let cardY = targetCy - cardH/2;
 
-  // card rect + text
-  card.appendChild(el('rect',{width:cardW, height:cardH}));
-  const textEl = el('text',{x:14,y:26});
-  wrapText(textEl, text, 262, 16);
+  // Clamp to CURRENT visible viewBox (vb), not BASE_VB
+  const margin = 16;
+  cardX = clamp(cardX, vb.x + margin, vb.x + vb.w - cardW - margin);
+  cardY = clamp(cardY, vb.y + margin, vb.y + vb.h - cardH - margin);
+
+  // Zoom to fit circle + card together (union rect)
+  const unionX = Math.min(x - L2_R, cardX);
+  const unionY = Math.min(y - L2_R, cardY);
+  const unionR = Math.max(x + L2_R, cardX + cardW);
+  const unionB = Math.max(y + L2_R, cardY + cardH);
+  zoomToFitRect(unionX, unionY, unionR - unionX, unionB - unionY, 40);
+
+  // Build UI
+  gUI.innerHTML = '';
+  const pivot = el('g',{ class:'pivot', transform:`translate(${x},${y}) scale(0.001)`});
+  const card  = el('g',{ class:'card',  transform:`translate(${cardX - x},${cardY - y})`});
+
+  card.appendChild(el('rect',{ width:cardW, height:cardH }));
+  const textEl = el('text',{ x:16, y:30 });
+  wrapText(textEl, text, cardW - 32, 18);
   card.appendChild(textEl);
 
   pivot.appendChild(card);
   gUI.appendChild(pivot);
 
-  // animate from circle outward
   requestAnimationFrame(()=>{
     pivot.setAttribute('transform', `translate(${x},${y}) scale(1)`);
-    // slight delay so opacity fades after the scale starts
     requestAnimationFrame(()=> card.classList.add('visible'));
   });
 }
+
 
 // --- helpers for inline styles in SVG text ---
 function parseWord(raw) {
@@ -854,7 +903,20 @@ function resetToMains(){
   backBtn.disabled = true;
 }
   
-  
+  window.addEventListener('resize', () => {
+  // Re-render so wrapCircleLabel recalculates with the new screen size
+  renderMains();
+
+  // If we're currently on the main view, re-apply the positioned transforms
+  if (focus.level === 0) {
+    Array.from(gMains.children).forEach(g => {
+      const id = g.getAttribute('data-id');
+      const p = mainPositions[id];
+      g.style.transform = `translate(${p.x}px,${p.y}px)`;
+    });
+  }
+});
+
 
 /* ------------------ INITIAL POSITIONING ------------------ */
 (function primePositions(){
