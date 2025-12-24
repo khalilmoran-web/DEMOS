@@ -393,7 +393,7 @@ function wrapCircleLabel(
   baseSize,
   lineHeight,
   centerY,
-  minFontSize = 15   // NEW: per-call minimum
+  minFontSize = 20   // NEW: per-call minimum
 ){
   // ensure attributes for centering
   textEl.setAttribute('text-anchor', 'middle');
@@ -473,6 +473,7 @@ function renderMains(){
     const {x,y}=mainPositions[m.id];
     const g = el('g',{class:'node main', transform:`translate(${x},${y})`, tabindex:0, role:'button',
                       'data-id':m.id, 'aria-label':m.label});
+    g.dataset.home = 'translate(${sx}px,${sy}px) scale(1)';
     g.appendChild(el('circle',{class:'ring', r:MAIN_R+6}));
     const b = el('g',{class:'bubble'});
     b.appendChild(el('circle',{r:MAIN_R, fill:m.color}));
@@ -510,9 +511,9 @@ function onChildClick(mainId, subIndex, childIndex){
 function focusToMain(id){
   focus = {level:1, main:id, sub:null, child:null};
   backBtn.disabled = false;
-// Zoom in to the center when a main is focused
-zoomToPoint(CENTER.x, CENTER.y, 1.6);
-  // Move clicked main to center; fade out others
+
+  zoomToPoint(CENTER.x, CENTER.y, 1.6);
+
   Array.from(gMains.children).forEach(g=>{
     const gid = g.getAttribute('data-id');
     if(gid===id){
@@ -523,57 +524,75 @@ zoomToPoint(CENTER.x, CENTER.y, 1.6);
     }
   });
 
-  // Build 3 subs around center
-  gL2.innerHTML=''; // clear children
+  gL2.innerHTML='';
   gL1.innerHTML='';
+  gUI.innerHTML='';
+
   const m = DATA.find(d=>d.id===id);
   const subsG = el('g',{class:'links-visible', id:`subs-${id}`});
+
   const start = -Math.PI/2;
- const n = m.subs.length;
-for(let i=0;i<n;i++){
-  const ang = start + i*(2*Math.PI/n);
+  const n = m.subs.length;
+
+  for(let i=0;i<n;i++){
+    const ang = start + i*(2*Math.PI/n);
     const sx = CENTER.x + L1_RING_R*Math.cos(ang);
     const sy = CENTER.y + L1_RING_R*Math.sin(ang);
 
     subsG.appendChild(el('line',{class:'link', x1:CENTER.x, y1:CENTER.y, x2:sx, y2:sy}));
 
-    const g = el('g',{class:'node sub', transform:`translate(${sx},${sy})`, tabindex:0, role:'button',
-                      'aria-label':`${m.label} ${m.subs[i].label}`});
+    const g = el('g',{
+      class:'node sub',
+      transform:`translate(${sx},${sy})`,
+      tabindex:0,
+      role:'button',
+      'data-index': i,
+      'aria-label':`${m.label} ${m.subs[i].label}`
+    });
+
+    // store a reliable "home" transform for Back
+    g.dataset.home = `translate(${sx}px,${sy}px) scale(1)`;
+
     g.appendChild(el('circle',{class:'ring', r:L1_R+6}));
     const b = el('g',{class:'bubble'});
     b.appendChild(el('circle',{r:L1_R, fill:shade(m.color,-6)}));
 
-  
+    const tSub = el('text', { class:'label' });
+    wrapCircleLabel(tSub, m.subs[i].label, L1_R * 1.8, 20, 13, 4, 18);
+    b.appendChild(tSub);
 
-  
-const tSub = el('text', { class:'label' });
-wrapCircleLabel(tSub, m.subs[i].label, L1_R * 1.8, 20, 13, 4, 18);
-b.appendChild(tSub);
     g.appendChild(b);
 
     // enter animation
     g.style.transformOrigin = 'center';
     g.style.transform = `translate(${sx}px,${sy}px) scale(.001)`;
-    requestAnimationFrame(()=>{ g.style.transition='transform .32s ease, opacity .28s ease'; g.style.transform=`translate(${sx}px,${sy}px) scale(1)`; });
+    requestAnimationFrame(()=>{
+      g.style.transition='transform .32s ease, opacity .28s ease';
+      g.style.transform = g.dataset.home;
+    });
 
     g.addEventListener('click',()=>onSubClick(id,i));
-    g.addEventListener('keydown',(e)=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();onSubClick(id,i);} });
+    g.addEventListener('keydown',(e)=>{
+      if(e.key==='Enter'||e.key===' '){e.preventDefault();onSubClick(id,i);}
+    });
 
     subsG.appendChild(g);
   }
+
   gL1.appendChild(subsG);
-  gUI.innerHTML='';
 }
+
 
 function focusToSub(mainId, subIndex){
   focus = {level:2, main:mainId, sub:subIndex, child:null};
   gUI.innerHTML='';
 
-  // Zoom in further for sub-level
-zoomToPoint(CENTER.x, CENTER.y, 2.6);
-  
-  // Fade other subs; center selected; spawn children
+  // IMPORTANT: sub-level zoom
+  zoomToPoint(CENTER.x, CENTER.y, 2.1);
+
   const subsG = document.getElementById(`subs-${mainId}`);
+  if(!subsG) return; // safety
+
   const subNodes = Array.from(subsG.querySelectorAll('.sub'));
   subNodes.forEach((node, i)=>{
     if(i===subIndex){
@@ -584,11 +603,14 @@ zoomToPoint(CENTER.x, CENTER.y, 2.6);
     }
   });
 
-  // Children around center
+  // build children
   gL2.innerHTML='';
   const m = DATA.find(d=>d.id===mainId);
+  if(!m) return;
+
   const chosen = m.subs[subIndex];
   const childrenG = el('g',{class:'links-visible', id:`children-${mainId}-${subIndex}`});
+
   const start = -Math.PI/2;
   for(let i=0;i<3;i++){
     const ang = start + i*(2*Math.PI/3);
@@ -597,34 +619,46 @@ zoomToPoint(CENTER.x, CENTER.y, 2.6);
 
     childrenG.appendChild(el('line',{class:'link', x1:CENTER.x, y1:CENTER.y, x2:cx, y2:cy}));
 
-    const g = el('g',{class:'node child', transform:`translate(${cx},${cy})`, tabindex:0, role:'button',
-                      'data-id': chosen.children[i].id, 'data-x': cx, 'data-y': cy,
-                      'aria-label':`${m.label} ${chosen.label} ${chosen.children[i].label}`});
+    const g = el('g',{
+      class:'node child',
+      transform:`translate(${cx},${cy})`,
+      tabindex:0,
+      role:'button',
+      'data-id': chosen.children[i].id,
+      'data-x': cx,
+      'data-y': cy,
+      'aria-label':`${m.label} ${chosen.label} ${chosen.children[i].label}`
+    });
+
     g.appendChild(el('circle',{class:'ring', r:L2_R+6}));
     const b = el('g',{class:'bubble'});
     b.appendChild(el('circle',{r:L2_R, fill:shade(m.color,8)}));
-    
 
+    const tChild = el('text', { class:'label' });
+    wrapCircleLabel(tChild, chosen.children[i].label, L2_R * 1.8, 19, 10, 3, 15);
+    b.appendChild(tChild);
 
-    
-const tChild = el('text', { class:'label' });
-wrapCircleLabel(tChild, chosen.children[i].label, L2_R * 1.8, 19, 10, 3, 15);
-b.appendChild(tChild);
     g.appendChild(b);
 
     g.style.transformOrigin='center';
     g.style.transform=`translate(${cx}px,${cy}px) scale(.001)`;
-    requestAnimationFrame(()=>{ g.style.transition='transform .28s ease, opacity .28s ease'; g.style.transform=`translate(${cx}px,${cy}px) scale(1)`; });
+    requestAnimationFrame(()=>{
+      g.style.transition='transform .28s ease, opacity .28s ease';
+      g.style.transform=`translate(${cx}px,${cy}px) scale(1)`;
+    });
 
-    ((ci)=>{ // child index
-      g.addEventListener('click',()=>onChildClick(mainId,subIndex,ci));
-      g.addEventListener('keydown',(e)=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();onChildClick(mainId,subIndex,ci);} });
-    })(i);
+    const ci = i;
+    g.addEventListener('click', ()=>onChildClick(mainId, subIndex, ci));
+    g.addEventListener('keydown',(e)=>{
+      if(e.key==='Enter'||e.key===' '){e.preventDefault();onChildClick(mainId, subIndex, ci);}
+    });
 
     childrenG.appendChild(g);
   }
+
   gL2.appendChild(childrenG);
 }
+
 
 /* ------------------ ANCHORED CARD ------------------ */
 /* Creates a pivot at the child circle, scales it up, and translates the card out from the circle */
@@ -785,18 +819,19 @@ function goBack(){
   if(focus.level===3){
     gUI.innerHTML='';          // close card only
     focus.level=2; focus.child=null;
+    zoomToPoint(CENTER.x, CENTER.y, 2.1);
     return;
   }
   if(focus.level===2){
     gL2.innerHTML='';
     const subsG = document.getElementById(`subs-${focus.main}`);
-    Array.from(subsG.querySelectorAll('.sub')).forEach((n)=>{
-      n.classList.remove('fade-out','focused');
-      const tr = n.getAttribute('transform');
-      n.style.transform = tr.replace(/\s?scale\([^)]+\)/,'') + ' scale(1)';
-    });
+  Array.from(subsG.querySelectorAll('.sub')).forEach((n)=>{
+  n.classList.remove('fade-out','focused');
+  n.style.transform = n.dataset.home || n.style.transform;
+});
+
     focus.level=1; focus.sub=null;
-    zoomToPoint(CENTER.x, CENTER.y, 2.0);
+    zoomToPoint(CENTER.x, CENTER.y, 1.6);
     return;
   }
   if(focus.level===1){
