@@ -321,7 +321,7 @@ function wrapCircleLabel(
   baseSize,
   lineHeight,
   centerY,
-  minFontSize = 11   // NEW: per-call minimum
+  minFontSize = 15   // NEW: per-call minimum
 ){
   // ensure attributes for centering
   textEl.setAttribute('text-anchor', 'middle');
@@ -405,7 +405,7 @@ function renderMains(){
     const b = el('g',{class:'bubble'});
     b.appendChild(el('circle',{r:MAIN_R, fill:m.color}));
 const tMain = el('text', { class:'label' });
-wrapCircleLabel(tMain, m.label, MAIN_R * 1.8, 26, 14, 4, 14); // maxWidth, baseSize, lineHeight, centerY, min font size
+wrapCircleLabel(tMain, m.label, MAIN_R * 1.8, 26, 14, 4, 20); // maxWidth, baseSize, lineHeight, centerY, min font size
 b.appendChild(tMain);
     g.appendChild(b);
     g.addEventListener('click',()=>onMainClick(m.id));
@@ -437,7 +437,8 @@ function onChildClick(mainId, subIndex, childIndex){
 function focusToMain(id){
   focus = {level:1, main:id, sub:null, child:null};
   backBtn.disabled = false;
-
+// Zoom in to the center when a main is focused
+zoomToPoint(CENTER.x, CENTER.y, 1.6);
   // Move clicked main to center; fade out others
   Array.from(gMains.children).forEach(g=>{
     const gid = g.getAttribute('data-id');
@@ -468,8 +469,82 @@ for(let i=0;i<n;i++){
     g.appendChild(el('circle',{class:'ring', r:L1_R+6}));
     const b = el('g',{class:'bubble'});
     b.appendChild(el('circle',{r:L1_R, fill:shade(m.color,-6)}));
+/* ------------------ CAMERA / VIEWBOX ZOOM ------------------ */
+const svg = document.querySelector('svg');
+const BASE_VB = { x: 0, y: -60, w: 1000, h: 820 }; // match your SVG viewBox
+
+// if you didn't change your viewBox yet, set this to {x:0,y:0,w:1000,h:700}
+// but I recommend the padded one above.
+
+let vb = { ...BASE_VB };
+let vbAnim = null;
+
+function setViewBoxNow(v){
+  vb = { ...v };
+  svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+}
+
+function animateViewBox(target, ms=320){
+  if(vbAnim) cancelAnimationFrame(vbAnim);
+
+  const start = { ...vb };
+  const t0 = performance.now();
+
+  const ease = (t)=> t<0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2; // easeInOutCubic
+
+  const step = (now)=>{
+    const p = Math.min(1, (now - t0) / ms);
+    const e = ease(p);
+
+    const cur = {
+      x: start.x + (target.x - start.x) * e,
+      y: start.y + (target.y - start.y) * e,
+      w: start.w + (target.w - start.w) * e,
+      h: start.h + (target.h - start.h) * e
+    };
+    setViewBoxNow(cur);
+
+    if(p < 1) vbAnim = requestAnimationFrame(step);
+  };
+  vbAnim = requestAnimationFrame(step);
+}
+
+// Compute a viewBox centered on (cx,cy) with zoom factor z (z>1 zooms in)
+function zoomToPoint(cx, cy, z){
+  const isPhone = window.matchMedia('(max-width: 640px)').matches;
+
+  // Stronger zoom on phones
+  const zoom = isPhone ? z * 1.25 : z;
+
+  const w = BASE_VB.w / zoom;
+  const h = BASE_VB.h / zoom;
+
+  // keep centered, but clamp so you don't pan outside the base bounds
+  let x = cx - w/2;
+  let y = cy - h/2;
+
+  const minX = BASE_VB.x;
+  const maxX = BASE_VB.x + BASE_VB.w - w;
+  const minY = BASE_VB.y;
+  const maxY = BASE_VB.y + BASE_VB.h - h;
+
+  x = Math.max(minX, Math.min(maxX, x));
+  y = Math.max(minY, Math.min(maxY, y));
+
+  animateViewBox({ x, y, w, h }, 340);
+}
+
+function resetZoom(){
+  animateViewBox(BASE_VB, 340);
+}
+
+// Initialize viewBox to base (important)
+setViewBoxNow(BASE_VB);
+  
+
+  
 const tSub = el('text', { class:'label' });
-wrapCircleLabel(tSub, m.subs[i].label, L1_R * 1.8, 20, 13, 4, 12);
+wrapCircleLabel(tSub, m.subs[i].label, L1_R * 1.8, 20, 13, 4, 18);
 b.appendChild(tSub);
     g.appendChild(b);
 
@@ -491,6 +566,9 @@ function focusToSub(mainId, subIndex){
   focus = {level:2, main:mainId, sub:subIndex, child:null};
   gUI.innerHTML='';
 
+  // Zoom in further for sub-level
+zoomToPoint(CENTER.x, CENTER.y, 2.6);
+  
   // Fade other subs; center selected; spawn children
   const subsG = document.getElementById(`subs-${mainId}`);
   const subNodes = Array.from(subsG.querySelectorAll('.sub'));
@@ -523,7 +601,7 @@ function focusToSub(mainId, subIndex){
     const b = el('g',{class:'bubble'});
     b.appendChild(el('circle',{r:L2_R, fill:shade(m.color,8)}));
 const tChild = el('text', { class:'label' });
-wrapCircleLabel(tChild, chosen.children[i].label, L2_R * 1.8, 19, 10, 3, 11);
+wrapCircleLabel(tChild, chosen.children[i].label, L2_R * 1.8, 19, 10, 3, 15);
 b.appendChild(tChild);
     g.appendChild(b);
 
@@ -711,10 +789,12 @@ function goBack(){
       n.style.transform = tr.replace(/\s?scale\([^)]+\)/,'') + ' scale(1)';
     });
     focus.level=1; focus.sub=null;
+    zoomToPoint(CENTER.x, CENTER.y, 2.0);
     return;
   }
   if(focus.level===1){
     resetToMains();
+    resetZoom();
     return;
   }
 }
