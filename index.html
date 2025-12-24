@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+
+  <head>
+    <meta charset="UTF-8">
+    <title>Modes Diagram</title>
+    
+
+  </head>
+    
+  <body>
+  <!doctype html>
+<html lang="en">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nested Expanding Circles (Anchored Card)</title>
+<style>
+  :root{
+    --bg: #0b1020;
+    --panel: #0f172a;
+    --ink: #e5e7eb;
+    --muted: #94a3b8;
+    --ring: #f59e0b;
+    --link: #64748b;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background: radial-gradient(900px 700px at 50% 35%, #111826, var(--bg));color:var(--ink);font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial}
+.wrap{max-width:1400px;margin:12px auto;padding:0 10px}
+  h1{font-size:1.15rem;margin:0 0 6px}
+  .subtle{color:var(--muted);margin:0 0 12px}
+
+  .board{
+    width:100%;
+    height: min(102vh, 820px);
+    min-height: 520px;
+    aspect-ratio: 16/10;
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+    border-radius:16px;
+    box-shadow: 0 14px 40px rgba(0,0,0,.4), inset 0 0 0 1px rgba(255,255,255,.05);
+    position:relative; overflow:hidden;
+  }
+
+  svg{width:100%;height:100%;display:block;touch-action:manipulation}
+
+  /* layers */
+  #layer-mains, #layer-level1, #layer-level2, #layer-ui { transition: opacity .28s ease; }
+
+  /* nodes */
+  .node{cursor:pointer; outline:none; transition: transform .35s ease, opacity .28s ease; }
+  .fade-out{opacity:0 !important; transform: scale(.001) !important;}
+  .ring{fill:none; stroke:var(--ring); stroke-width:3; opacity:0; transition:opacity .2s ease, transform .2s ease; transform-origin:center;}
+  .node:hover .ring, .node:focus-visible .ring{opacity:.9; transform:scale(1.1)}
+
+  .bubble{filter: drop-shadow(0 6px 12px rgba(0,0,0,.4)); transform-origin:center; transition: transform .35s ease; }
+  .label{font-weight:700; pointer-events:none; fill:#0b1020; text-anchor:middle}
+
+  .link{stroke:var(--link); stroke-width:2; stroke-linecap:round; opacity:0; transition:opacity .25s ease}
+  .links-visible .link{opacity:.85}
+
+  .main circle{stroke: rgba(255,255,255,.12); stroke-width:2}
+  .sub circle{stroke: rgba(0,0,0,.18); stroke-width:2}
+  .child circle{stroke: rgba(0,0,0,.18); stroke-width:2}
+
+  .focused > .bubble{ transform: scale(1.15) }
+
+  /* back button */
+  .back{
+    position:absolute; left:12px; top:12px;
+    background:#111827; color:var(--ink);
+    border:1px solid rgba(255,255,255,.1);
+    padding:8px 12px; border-radius:10px; cursor:pointer;
+    display:flex; align-items:center; gap:8px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.35);
+    user-select:none;
+  }
+  .back[disabled]{opacity:.5; cursor:default}
+  .kbd{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; background:#0b1225; border:1px solid rgba(255,255,255,.1); padding:2px 6px; border-radius:6px}
+
+  /* anchored card (grows from circle) */
+  .pivot { transition: transform .30s ease; }              /* we animate scale on this */
+  .card rect{fill:#ffffff; rx:10; ry:10}
+  .card text{fill:#0b1020; font-size:14px}
+  .card{ opacity:0; }                                      /* will fade in right after scaling */
+  .card.visible{ opacity:1; transition: opacity .20s ease; }
+
+@media (max-width: 900px){
+  .board{ height: 75vh; min-height: 520px; }
+}
+
+@media (max-width: 640px){
+  .board{ height: 72vh; min-height: 520px; }
+  .label{ font-size: 12px; }
+}
+
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+   
+    <p class="subtle">Click a Mode circle to see its sub-modes. Click a sub-mode to see example seeds, categorised into mental models, practices and processes. Use <span class="kbd">Back</span> / <span class="kbd">Esc</span> to step out.</p>
+
+    <div class="board" aria-label="Interactive nested diagram">
+      <button id="backBtn" class="back" disabled title="Go back">⟵ Back</button>
+      <svg viewBox="0 -80 1000 820" preserveAspectRatio="xMidYMid meet" role="group" aria-roledescription="diagram">
+        <g id="layer-mains"></g>
+        <g id="layer-level1"></g>
+        <g id="layer-level2"></g>
+        <g id="layer-ui"></g>
+      </svg>
+    </div>
+  </div>
+
+<script>
+/* ------------------ DATA ------------------ */
+/* 6 main circles. Each has 3 subcircles; each sub has 3 children; each child has one text. */
+const COLORS = ["#fca5a5","#fdba74","#fcd34d","#86efac","#93c5fd","#a5b4fc"];
+  // How many sub-circles each main should have (2, 3, or 4)
+const SUB_COUNT = {
+  M1: 3,
+  M2: 3,
+  M3: 4,
+  M4: 3,
+  M5: 2
+  // If you later re-add M6: 3
+};
+
+const DATA = Array.from({length:5}).map((_,i)=>({
+  id:`M${i+1}`, label:`Main ${i+1}`, color: COLORS[i%COLORS.length],
+  subs: Array.from({length:4}).map((__,j)=>( {   // generate up to 4
+    id:`M${i+1}-S${j+1}`, label:`Sub ${j+1}`,
+    children: Array.from({length:3}).map((___,k)=>({
+      id:`M${i+1}-S${j+1}-C${k+1}`, label:`Child ${k+1}`,
+      text:`This is the info card for Main ${i+1} → Sub ${j+1} → Child ${k+1}. Add your content here.`
+    }))
+  })).slice(0, SUB_COUNT[`M${i+1}`] ?? 3)        // then trim to 2/3/4 (default 3)
+}));
+
+
+  // ================= EASY-EDIT CONTENT (put all your words here) =================
+// Fill only what you need. Anything you omit keeps the original defaults.
+const CONTENT = {
+  M1: {
+    label: "Connecting",
+    // color: "#fca5a5", // optional per-main override
+    subs: {
+      "M1-S1": {
+        label: "Connecting to\nSelf, Safety\nand Values",
+        children: {
+          "M1-S1-C1": { label: "Mental\nModels", text: "_Example_Seeds:_\n1:\n2:\n3:"},
+          "M1-S1-C2": { label: "Practices", text: "_Example_Seeds:_\n1:\n2:\n3:" },
+          "M1-S1-C3": { label: "Processes", text: "_Example_Seeds:_\n1:\n2:\n3:" }
+        }
+      },
+      "M1-S2": {
+        label: "Connecting to\nOthers",
+        children: {
+          "M1-S2-C1": { label: "Mental\nModels", text: "_Example_Seeds:_\n1:\n2:\n3:"},
+          "M1-S2-C2": { label: "Practices", text: "_Example_Seeds:_\n1:\n2:\n3:" },
+          "M1-S2-C3": { label: "Processes", text: "_Example_Seeds:_\n1:\n2:\n3:" }
+        }
+      },
+      "M1-S3": {
+        label: "Connecting\nAcross\nDivides",
+        children: {
+          "M1-S3-C1": {  label: "Mental\nModels", text: "_Example_Seeds:_\n1:\n2:\n3:"},
+          "M1-S3-C2": { label: "Practices", text: "_Example_Seeds:_\n1:\n2:\n3:" },
+          "M1-S3-C3": { label: "Processes", text: "_Example_Seeds:_\n1:\n2:\n3:" }
+        }
+      }
+    }
+  },
+
+  // Copy/paste this M1 block and rename to M2, M3, ... M6 with your words:
+  M2: { label: "Mapping", subs: {
+    "M2-S1": { label: "Active\nListening", children: {
+      "M2-S1-C1": { label: "Mental\nModels", text: "_Example_Seeds:_\n1:\n2:\n3:"},
+      "M2-S1-C2": { label: "Practices", text: "_Example_Seeds:_\n1:\n2:\n3:" },
+      "M2-S1-C3": { label: "Processes", text: "_Example_Seeds:_\n1:\n2:\n3:" }
+    }},
+    "M2-S2": { label: "Systems\nand Dialectical\nThinking", children: {
+      "M2-S2-C1": { label: "Mental\nModels", text: "_Example_Seeds:_\n1:\n2:\n3:"},
+      "M2-S2-C2": { label: "Practices", text: "_Example_Seeds:_\n1:\n2:\n3:" },
+      "M2-S2-C3": { label: "Processes", text: "_Example_Seeds:_\n1:\n2:\n3:" }
+    }},
+    "M2-S3": { label: "Mapping Ideas\nand Requests", children: {
+      "M2-S3-C1": { label: "Mental\nModels", text: "_Example_Seeds:_\n1:\n2:\n3:"},
+      "M2-S3-C2": { label: "Practices", text: "_Example_Seeds:_\n1:\n2:\n3:" },
+      "M2-S3-C3": { label: "Processes", text: "_Example_Seeds:_\n1:\n2:\n3:" }
+    }}
+  }},
+
+  M3: { label: "Co-Creating", subs: {
+    "M3-S1": { label: "Democratising\nPower", children: {
+      "M3-S1-C1": { label: "Mental\nModels", text: "_Example_Seeds:_\n1:\n2:\n3:"},
+      "M3-S1-C2": { label: "Practices", text: "_Example_Seeds:_\n1:\n2:\n3:" },
+      "M3-S1-C3": { label: "Processes", text: "_Example_Seeds:_\n1:\n2:\n3:" }
+    }},
+    "M3-S2": { label: "Responsive\nCooperation\nand Praxis", children: {
+      "M3-S2-C1": { label: "Mental\nModels", text: "_Example_Seeds:_\n1:\n2:\n3:"},
+      "M3-S2-C2": { label: "Practices", text: "_Example_Seeds:_\n1:\n2:\n3:" },
+      "M3-S2-C3": { label: "Processes", text: "_Example_Seeds:_\n1:\n2:\n3:" }
+    }},
+    "M3-S3": { label: "Investing in\nSoft Time\nand Spaces", children: {
+      "M3-S3-C1": { label: "Mental\nModels", text: "_Example_Seeds:_\n1:\n2:\n3:"},
+      "M3-S3-C2": { label: "Practices", text: "_Example_Seeds:_\n1:\n2:\n3:" },
+      "M3-S3-C3": { label: "Processes", text: "_Example_Seeds:_\n1:\n2:\n3:" }
+    }},
+    "M3-S4": { label: "Responsive\nCooperation\nand Praxis", children: {
+      "M3-S4-C1": { label: "Mental\nModels", text: "_Example_Seeds:_\n1:\n2:\n3:"},
+      "M3-S4-C2": { label: "Practices", text: "_Example_Seeds:_\n1:\n2:\n3:" },
+      "M3-S4-C3": { label: "Processes", text: "_Example_Seeds:_\n1:\n2:\n3:" }
+    }}
+  }},
+
+  M4: { label: "Evolving", subs: {
+    "M4-S1": { label: "Failing\nForward:\nStaggered,\nrythmic\niteration", children: {
+      "M4-S1-C1": { label: "Mental\nModels", text: "_Example_Seeds:_\n1:\n2:\n3:"},
+      "M4-S1-C2": { label: "Practices", text: "_Example_Seeds:_\n1:\n2:\n3:" },
+      "M4-S1-C3": { label: "Processes", text: "_Example_Seeds:_\n1:\n2:\n3:" }
+    }},
+    "M4-S2": { label: "Democratic\npartnership,\nlearning and\npedagogy", children: {
+      "M4-S2-C1": { label: "Mental\nModels", text: "_Example_Seeds:_\n1:\n2:\n3:"},
+      "M4-S2-C2": { label: "Practices", text: "_Example_Seeds:_\n1:\n2:\n3:" },
+      "M4-S2-C3": { label: "Processes", text: "_Example_Seeds:_\n1:\n2:\n3:" }
+    }},
+    "M4-S3": { label: "Building\nUnderstanding\nAcross Divides:\nDialogic\nExchange", children: {
+      "M4-S3-C1": { label: "Mental\nModels", text: "_Example_Seeds:_\n1:\n2:\n3:"},
+      "M4-S3-C2": { label: "Practices", text: "_Example_Seeds:_\n1:\n2:\n3:" },
+      "M4-S3-C3": { label: "Processes", text: "_Example_Seeds:_\n1:\n2:\n3:" }
+    }}
+  }},
+    M5: { label: "Sustaining", subs: {
+    "M5-S1": { label: "Responsive\nRepairing,\nRestoring and\nPreventing", children: {
+      "M5-S1-C1": { label: "Mental\nModels", text: "_Example_Seeds:_\n1:\n2:\n3:"},
+      "M5-S1-C2": { label: "Practices", text: "_Example_Seeds:_\n1:\n2:\n3:" },
+      "M5-S1-C3": { label: "Processes", text: "_Example_Seeds:_\n1:\n2:\n3:" }
+    }},
+    "M5-S2": { label: "Personal\nGrowth and\nExploration", children: {
+      "M5-S2-C1": { label: "Mental\nModels", text: "_Example_Seeds:_\n1:\n2:\n3:"},
+      "M5-S2-C2": { label: "Practices", text: "_Example_Seeds:_\n1:\n2:\n3:" },
+      "M5-S2-C3": { label: "Processes", text: "_Example_Seeds:_\n1:\n2:\n3:" }
+    }},
+   
+  }},
+};
+// Apply your CONTENT to the existing DATA (non-destructive overlay)
+function applyContent(tree, content){
+  tree.forEach(m=>{
+    const mc = content[m.id];
+    if(mc?.label) m.label = mc.label;
+    if(mc?.color) m.color = mc.color;
+    m.subs.forEach(s=>{
+      const sc = mc?.subs?.[s.id];
+      if(sc?.label) s.label = sc.label;
+      s.children.forEach(c=>{
+        const cc = sc?.children?.[c.id];
+        if(cc?.label) c.label = cc.label;
+        if(cc?.text)  c.text  = cc.text;
+      });
+    });
+  });
+}
+applyContent(DATA, CONTENT);
+// ================= END EASY-EDIT CONTENT =================
+
+  
+/* ------------------ GEOMETRY ------------------ */
+const WIDTH=1000, HEIGHT=700;
+const CENTER={x:WIDTH/2,y:HEIGHT/2};
+const MAIN_RING_R=250, MAIN_R=135;
+const L1_RING_R=150, L1_R=93;     // around focused main
+const L2_RING_R=120, L2_R=66;     // around focused sub
+
+/* Layers */
+const gMains = document.getElementById('layer-mains');
+const gL1    = document.getElementById('layer-level1');   // subs
+const gL2    = document.getElementById('layer-level2');   // children
+const gUI    = document.getElementById('layer-ui');       // card (via pivot)
+
+/* State */
+let focus = { level:0, main:null, sub:null, child:null }; // 0=mains, 1=subs, 2=children, 3=card
+
+/* Helpers */
+const el = (name, attrs={}, text=null) => {
+  const n = document.createElementNS('http://www.w3.org/2000/svg', name);
+  for(const [k,v] of Object.entries(attrs)) n.setAttribute(k,v);
+  if(text!==null) n.appendChild(document.createTextNode(text));
+  return n;
+};
+const shade = (hex, percent)=>{ // +/- percent
+  const f=parseInt(hex.slice(1),16), t=percent<0?0:255, p=Math.abs(percent)/100;
+  const R=f>>16,G=f>>8&0xFF,B=f&0xFF;
+  const nr=Math.round((t-R)*p)+R, ng=Math.round((t-G)*p)+G, nb=Math.round((t-B)*p)+B;
+  return `#${(0x1000000 + (nr<<16) + (ng<<8) + nb).toString(16).slice(1)}`;
+};
+
+/* ------------------ LAYOUT CALC ------------------ */
+const mainPositions = {};
+DATA.forEach((m,i)=>{
+  const a = (i/DATA.length)*Math.PI*2 - Math.PI/2;
+  mainPositions[m.id] = { x: CENTER.x + MAIN_RING_R*Math.cos(a),
+                          y: CENTER.y + MAIN_RING_R*Math.sin(a), angle:a };
+});
+
+  /**
+ * Wrap and center SVG text inside a circle.
+ * - textEl: an empty <text> element with class 'label'
+ * - raw: string; supports \n for manual new lines
+ * - maxWidth: max line width in px (e.g., ~ 90% of circle diameter)
+ * - baseSize: starting font-size in px (auto-scales down if needed)
+ * - lineHeight: line spacing (px)
+ * - centerY: vertical center (relative to the circle center)
+ *
+ * Note: text is horizontally centered via text-anchor="middle".
+ */
+function wrapCircleLabel(
+  textEl,
+  raw,
+  maxWidth,
+  baseSize,
+  lineHeight,
+  centerY,
+  minFontSize = 11   // NEW: per-call minimum
+){
+  // ensure attributes for centering
+  textEl.setAttribute('text-anchor', 'middle');
+
+  // clear existing children
+  while (textEl.firstChild) textEl.removeChild(textEl.firstChild);
+
+  const paragraphs = String(raw).split('\n'); // manual breaks allowed
+
+  // Make a measuring probe
+  const probe = el('tspan', {}, '');
+  textEl.appendChild(probe);
+
+  // Try from baseSize down to 9px until everything fits
+  let fontSize = baseSize;
+  let lines = [];
+  while (fontSize >= minFontSize) {
+    textEl.setAttribute('font-size', fontSize);
+    lines = []; // reset
+
+    let fits = true;
+
+    // Build wrapped lines greedily for each paragraph
+    paragraphs.forEach((para, pi) => {
+      const words = para.length ? para.split(/\s+/) : ['']; // keep empty lines
+      let current = '';
+
+      for (let i = 0; i < words.length; i++) {
+        const test = current ? current + ' ' + words[i] : words[i];
+        probe.textContent = test;
+        const tooWide = probe.getComputedTextLength() > maxWidth;
+
+        if (tooWide && current) {
+          lines.push(current);
+          current = words[i];
+        } else {
+          current = test;
+        }
+
+        if (i === words.length - 1) {
+          lines.push(current);
+        }
+      }
+
+      // optional extra vertical gap between paragraphs:
+      if (pi !== paragraphs.length - 1) lines.push(''); // blank line
+    });
+
+    // Check widths with this font size
+    fits = lines.every(line => {
+      probe.textContent = line;
+      return probe.getComputedTextLength() <= maxWidth;
+    });
+
+    if (fits) break;
+    fontSize -= 1; // try smaller
+  }
+
+  // Remove probe
+  textEl.removeChild(probe);
+
+  // Now render lines centered vertically
+  const totalLines = lines.length;
+  const startY = centerY - ((totalLines - 1) * lineHeight) / 2;
+
+  lines.forEach((line, i) => {
+    const t = el('tspan', { x: 0, y: startY + i * lineHeight }, line);
+    textEl.appendChild(t);
+  });
+}
+
+  
+/* ------------------ RENDER MAINS ------------------ */
+function renderMains(){
+  gMains.innerHTML='';
+  DATA.forEach(m=>{
+    const {x,y}=mainPositions[m.id];
+    const g = el('g',{class:'node main', transform:`translate(${x},${y})`, tabindex:0, role:'button',
+                      'data-id':m.id, 'aria-label':m.label});
+    g.appendChild(el('circle',{class:'ring', r:MAIN_R+6}));
+    const b = el('g',{class:'bubble'});
+    b.appendChild(el('circle',{r:MAIN_R, fill:m.color}));
+const tMain = el('text', { class:'label' });
+wrapCircleLabel(tMain, m.label, MAIN_R * 1.8, 26, 14, 4, 14); // maxWidth, baseSize, lineHeight, centerY, min font size
+b.appendChild(tMain);
+    g.appendChild(b);
+    g.addEventListener('click',()=>onMainClick(m.id));
+    g.addEventListener('keydown',(e)=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();onMainClick(m.id);} });
+    gMains.appendChild(g);
+  });
+}
+renderMains();
+
+/* ------------------ INTERACTIONS ------------------ */
+function onMainClick(id){
+  if(focus.level===1 && focus.main===id){ resetToMains(); return; }
+  focusToMain(id);
+}
+function onSubClick(mainId, subIndex){
+  const m = DATA.find(d=>d.id===mainId);
+  if(!m) return;
+  if(focus.level===2 && focus.sub===subIndex){ focusToMain(mainId); return; }
+  focusToSub(mainId, subIndex);
+}
+function onChildClick(mainId, subIndex, childIndex){
+  const m = DATA.find(d=>d.id===mainId);
+  const sub = m.subs[subIndex];
+  const child = sub.children[childIndex];
+  showCard(child.id, child.text);  // pass id + text
+}
+
+/* ------------------ FOCUS TRANSITIONS ------------------ */
+function focusToMain(id){
+  focus = {level:1, main:id, sub:null, child:null};
+  backBtn.disabled = false;
+
+  // Move clicked main to center; fade out others
+  Array.from(gMains.children).forEach(g=>{
+    const gid = g.getAttribute('data-id');
+    if(gid===id){
+      g.classList.add('focused');
+      g.style.transform = `translate(${CENTER.x}px,${CENTER.y}px)`;
+    } else {
+      g.classList.add('fade-out');
+    }
+  });
+
+  // Build 3 subs around center
+  gL2.innerHTML=''; // clear children
+  gL1.innerHTML='';
+  const m = DATA.find(d=>d.id===id);
+  const subsG = el('g',{class:'links-visible', id:`subs-${id}`});
+  const start = -Math.PI/2;
+ const n = m.subs.length;
+for(let i=0;i<n;i++){
+  const ang = start + i*(2*Math.PI/n);
+    const sx = CENTER.x + L1_RING_R*Math.cos(ang);
+    const sy = CENTER.y + L1_RING_R*Math.sin(ang);
+
+    subsG.appendChild(el('line',{class:'link', x1:CENTER.x, y1:CENTER.y, x2:sx, y2:sy}));
+
+    const g = el('g',{class:'node sub', transform:`translate(${sx},${sy})`, tabindex:0, role:'button',
+                      'aria-label':`${m.label} ${m.subs[i].label}`});
+    g.appendChild(el('circle',{class:'ring', r:L1_R+6}));
+    const b = el('g',{class:'bubble'});
+    b.appendChild(el('circle',{r:L1_R, fill:shade(m.color,-6)}));
+const tSub = el('text', { class:'label' });
+wrapCircleLabel(tSub, m.subs[i].label, L1_R * 1.8, 20, 13, 4, 12);
+b.appendChild(tSub);
+    g.appendChild(b);
+
+    // enter animation
+    g.style.transformOrigin = 'center';
+    g.style.transform = `translate(${sx}px,${sy}px) scale(.001)`;
+    requestAnimationFrame(()=>{ g.style.transition='transform .32s ease, opacity .28s ease'; g.style.transform=`translate(${sx}px,${sy}px) scale(1)`; });
+
+    g.addEventListener('click',()=>onSubClick(id,i));
+    g.addEventListener('keydown',(e)=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();onSubClick(id,i);} });
+
+    subsG.appendChild(g);
+  }
+  gL1.appendChild(subsG);
+  gUI.innerHTML='';
+}
+
+function focusToSub(mainId, subIndex){
+  focus = {level:2, main:mainId, sub:subIndex, child:null};
+  gUI.innerHTML='';
+
+  // Fade other subs; center selected; spawn children
+  const subsG = document.getElementById(`subs-${mainId}`);
+  const subNodes = Array.from(subsG.querySelectorAll('.sub'));
+  subNodes.forEach((node, i)=>{
+    if(i===subIndex){
+      node.classList.add('focused');
+      node.style.transform = `translate(${CENTER.x}px,${CENTER.y}px) scale(1.12)`;
+    } else {
+      node.classList.add('fade-out');
+    }
+  });
+
+  // Children around center
+  gL2.innerHTML='';
+  const m = DATA.find(d=>d.id===mainId);
+  const chosen = m.subs[subIndex];
+  const childrenG = el('g',{class:'links-visible', id:`children-${mainId}-${subIndex}`});
+  const start = -Math.PI/2;
+  for(let i=0;i<3;i++){
+    const ang = start + i*(2*Math.PI/3);
+    const cx = CENTER.x + L2_RING_R*Math.cos(ang);
+    const cy = CENTER.y + L2_RING_R*Math.sin(ang);
+
+    childrenG.appendChild(el('line',{class:'link', x1:CENTER.x, y1:CENTER.y, x2:cx, y2:cy}));
+
+    const g = el('g',{class:'node child', transform:`translate(${cx},${cy})`, tabindex:0, role:'button',
+                      'data-id': chosen.children[i].id, 'data-x': cx, 'data-y': cy,
+                      'aria-label':`${m.label} ${chosen.label} ${chosen.children[i].label}`});
+    g.appendChild(el('circle',{class:'ring', r:L2_R+6}));
+    const b = el('g',{class:'bubble'});
+    b.appendChild(el('circle',{r:L2_R, fill:shade(m.color,8)}));
+const tChild = el('text', { class:'label' });
+wrapCircleLabel(tChild, chosen.children[i].label, L2_R * 1.8, 19, 10, 3, 11);
+b.appendChild(tChild);
+    g.appendChild(b);
+
+    g.style.transformOrigin='center';
+    g.style.transform=`translate(${cx}px,${cy}px) scale(.001)`;
+    requestAnimationFrame(()=>{ g.style.transition='transform .28s ease, opacity .28s ease'; g.style.transform=`translate(${cx}px,${cy}px) scale(1)`; });
+
+    ((ci)=>{ // child index
+      g.addEventListener('click',()=>onChildClick(mainId,subIndex,ci));
+      g.addEventListener('keydown',(e)=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();onChildClick(mainId,subIndex,ci);} });
+    })(i);
+
+    childrenG.appendChild(g);
+  }
+  gL2.appendChild(childrenG);
+}
+
+/* ------------------ ANCHORED CARD ------------------ */
+/* Creates a pivot at the child circle, scales it up, and translates the card out from the circle */
+function showCard(childId, text){
+  focus.level = 3;
+  focus.child = childId;
+
+  // locate the child node + its coordinates
+  const node = gL2.querySelector(`.child[data-id="${childId}"]`);
+  if(!node) return;
+  const x = parseFloat(node.getAttribute('data-x'));
+  const y = parseFloat(node.getAttribute('data-y'));
+
+  // card size
+  const cardW=290, cardH=140;
+
+  // Direction to push card outward (away from diagram center)
+  const angleFromCenter = Math.atan2(y - CENTER.y, x - CENTER.x);
+  const baseOffset = L2_R + 20;                      // gap from circle edge
+  const targetCx = x + Math.cos(angleFromCenter) * (baseOffset + cardW/2);
+  const targetCy = y + Math.sin(angleFromCenter) * (baseOffset + cardH/2);
+  const cardX = targetCx - cardW/2;
+  const cardY = targetCy - cardH/2;
+
+  // Clear old UI and build pivot -> card
+  gUI.innerHTML='';
+  const pivot = el('g',{class:'pivot', transform:`translate(${x},${y}) scale(0.001)`});
+  const card = el('g',{class:'card', transform:`translate(${cardX - x},${cardY - y})`}); // relative to pivot
+
+  // card rect + text
+  card.appendChild(el('rect',{width:cardW, height:cardH}));
+  const textEl = el('text',{x:14,y:26});
+  wrapText(textEl, text, 262, 16);
+  card.appendChild(textEl);
+
+  pivot.appendChild(card);
+  gUI.appendChild(pivot);
+
+  // animate from circle outward
+  requestAnimationFrame(()=>{
+    pivot.setAttribute('transform', `translate(${x},${y}) scale(1)`);
+    // slight delay so opacity fades after the scale starts
+    requestAnimationFrame(()=> card.classList.add('visible'));
+  });
+}
+
+// --- helpers for inline styles in SVG text ---
+function parseWord(raw) {
+  // Support *_both_* or _*both*_
+  let text = raw;
+  let bold = false, underline = false;
+
+  // Ignore escaped markers like \* \_ (rare; comment these two lines out if you don't need escaping)
+  text = text.replace(/\\\*/g, '§AST§').replace(/\\_/g, '§UND§');
+
+  let changed = true;
+  while (changed && text.length >= 2) {
+    changed = false;
+    if (text.startsWith('*') && text.endsWith('*')) {
+      bold = !bold; text = text.slice(1, -1); changed = true;
+    }
+    if (text.startsWith('_') && text.endsWith('_')) {
+      underline = !underline; text = text.slice(1, -1); changed = true;
+    }
+  }
+
+  // restore escaped markers
+  text = text.replace(/§AST§/g, '*').replace(/§UND§/g, '_');
+
+  return { text, bold, underline };
+}
+
+function commitLine(textEl, segments, x, y) {
+  if (!segments.length) return;
+  // First tspan sets x/y; subsequent tspans flow inline
+  segments.forEach((seg, idx) => {
+    const attrs = idx === 0 ? { x, y } : {};
+    if (seg.bold) attrs['font-weight'] = 'bold';
+    if (seg.underline) attrs['text-decoration'] = 'underline';
+    const tspan = el('tspan', attrs, seg.text);
+    textEl.appendChild(tspan);
+  });
+}
+
+// --- drop-in replacement for your old wrapText ---
+function wrapText(textEl, str, maxWidth, lineHeight){
+  // Clear previous content
+  while (textEl.firstChild) textEl.removeChild(textEl.firstChild);
+
+  const startX = 14;     // left padding inside the card
+  const startY = 26;     // first line baseline inside the card
+  let y = 0;
+
+  // Split into paragraphs by manual breaks you put in your content: \n
+  const paragraphs = String(str).split('\n');
+
+  // We'll use a single probe <tspan> to measure candidate lines
+  const probe = el('tspan', {}, '');
+  textEl.appendChild(probe);
+
+  paragraphs.forEach((para, pi) => {
+    const words = para.length ? para.split(/\s+/) : ['']; // keep empty lines
+    let lineSegments = []; // array of {text, bold, underline}
+    let lineText = '';     // plain text for measuring (approx; ignores style width differences)
+
+    for (let i = 0; i < words.length; i++) {
+      const seg = parseWord(words[i]);
+      const candidateText = lineText ? (lineText + ' ' + seg.text) : seg.text;
+
+      // Measure candidate line width
+      probe.textContent = candidateText;
+      const tooWide = probe.getComputedTextLength() > maxWidth;
+
+      if (tooWide && lineText) {
+        // Commit current line and start a new one with this word
+        commitLine(textEl, lineSegments, startX, startY + y);
+        y += lineHeight;
+        lineSegments = [seg];
+        lineText = seg.text;
+      } else {
+        // Append to current line
+        if (lineText) {
+          // add a space before this word (as a normal, unstyled space)
+          lineSegments.push({ text: ' ', bold: false, underline: false });
+        }
+        lineSegments.push(seg);
+        lineText = candidateText;
+      }
+
+      // Last word → commit whatever we have
+      if (i === words.length - 1) {
+        commitLine(textEl, lineSegments, startX, startY + y);
+        y += lineHeight;
+        lineSegments = [];
+        lineText = '';
+      }
+    }
+
+    // Optional extra spacing between paragraphs
+    if (pi !== paragraphs.length - 1) y += Math.floor(lineHeight * 0.5);
+  });
+
+  // Remove probe after use
+  textEl.removeChild(probe);
+}
+
+
+
+/* ------------------ BACK / RESET ------------------ */
+const backBtn = document.getElementById('backBtn');
+backBtn.addEventListener('click', goBack);
+document.addEventListener('keydown', (e)=>{
+  if(e.key==='Escape') goBack();
+});
+
+function goBack(){
+  if(focus.level===0) return;
+  if(focus.level===3){
+    gUI.innerHTML='';          // close card only
+    focus.level=2; focus.child=null;
+    return;
+  }
+  if(focus.level===2){
+    gL2.innerHTML='';
+    const subsG = document.getElementById(`subs-${focus.main}`);
+    Array.from(subsG.querySelectorAll('.sub')).forEach((n)=>{
+      n.classList.remove('fade-out','focused');
+      const tr = n.getAttribute('transform');
+      n.style.transform = tr.replace(/\s?scale\([^)]+\)/,'') + ' scale(1)';
+    });
+    focus.level=1; focus.sub=null;
+    return;
+  }
+  if(focus.level===1){
+    resetToMains();
+    return;
+  }
+}
+
+function resetToMains(){
+  gL1.innerHTML=''; gL2.innerHTML=''; gUI.innerHTML='';
+  Array.from(gMains.children).forEach(g=>{
+    const id = g.getAttribute('data-id');
+    const p = mainPositions[id];
+    g.classList.remove('fade-out','focused');
+    g.style.transform = `translate(${p.x}px,${p.y}px)`;
+  });
+  focus = {level:0, main:null, sub:null, child:null};
+  backBtn.disabled = true;
+}
+  
+  
+
+/* ------------------ INITIAL POSITIONING ------------------ */
+(function primePositions(){
+  Array.from(gMains.children).forEach(g=>{
+    const id=g.getAttribute('data-id'); const p=mainPositions[id];
+    g.style.transform=`translate(${p.x}px,${p.y}px)`;
+  });
+  
+  
+})();
+</script>
+</body>
+</html>
+    
+  </body>
+  
+</html>
