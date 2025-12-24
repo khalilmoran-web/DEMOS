@@ -11,6 +11,7 @@
   <body>
   <!doctype html>
 <html lang="en">
+  <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Nested Expanding Circles (Anchored Card)</title>
@@ -33,7 +34,6 @@
     width:100%;
     height: min(102vh, 820px);
     min-height: 520px;
-    aspect-ratio: 16/10;
     background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
     border-radius:16px;
     box-shadow: 0 14px 40px rgba(0,0,0,.4), inset 0 0 0 1px rgba(255,255,255,.05);
@@ -92,7 +92,7 @@
   .label{ font-size: 12px; }
 }
 
-  }
+  
 </style>
 </head>
 <body>
@@ -112,6 +112,78 @@
   </div>
 
 <script>
+  
+ /* ------------------ CAMERA / VIEWBOX ZOOM (SAFE) ------------------ */
+let svg = null;
+
+// Match your actual SVG viewBox in HTML:
+const BASE_VB = { x: 0, y: -80, w: 1000, h: 820 };
+
+let vb = { ...BASE_VB };
+let vbAnim = null;
+
+function setViewBoxNow(v){
+  vb = { ...v };
+  if(!svg) return;
+  svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
+}
+
+function animateViewBox(target, ms=320){
+  if(!svg) return;
+  if(vbAnim) cancelAnimationFrame(vbAnim);
+
+  const start = { ...vb };
+  const t0 = performance.now();
+  const ease = (t)=> t<0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2;
+
+  const step = (now)=>{
+    const p = Math.min(1, (now - t0) / ms);
+    const e = ease(p);
+    setViewBoxNow({
+      x: start.x + (target.x - start.x) * e,
+      y: start.y + (target.y - start.y) * e,
+      w: start.w + (target.w - start.w) * e,
+      h: start.h + (target.h - start.h) * e,
+    });
+    if(p < 1) vbAnim = requestAnimationFrame(step);
+  };
+  vbAnim = requestAnimationFrame(step);
+}
+
+function zoomToPoint(cx, cy, z){
+  if(!svg) return;
+
+  const isPhone = window.matchMedia('(max-width: 640px)').matches;
+  const zoom = isPhone ? z * 1.35 : z;
+
+  const w = BASE_VB.w / zoom;
+  const h = BASE_VB.h / zoom;
+
+  let x = cx - w/2;
+  let y = cy - h/2;
+
+  const minX = BASE_VB.x;
+  const maxX = BASE_VB.x + BASE_VB.w - w;
+  const minY = BASE_VB.y;
+  const maxY = BASE_VB.y + BASE_VB.h - h;
+
+  x = Math.max(minX, Math.min(maxX, x));
+  y = Math.max(minY, Math.min(maxY, y));
+
+  animateViewBox({ x, y, w, h }, 340);
+}
+
+function resetZoom(){
+  animateViewBox(BASE_VB, 340);
+}
+
+// init AFTER DOM is ready
+window.addEventListener('load', ()=>{
+  svg = document.querySelector('.board svg');
+  setViewBoxNow(BASE_VB);
+});
+
+  
 /* ------------------ DATA ------------------ */
 /* 6 main circles. Each has 3 subcircles; each sub has 3 children; each child has one text. */
 const COLORS = ["#fca5a5","#fdba74","#fcd34d","#86efac","#93c5fd","#a5b4fc"];
@@ -419,6 +491,7 @@ renderMains();
 function onMainClick(id){
   if(focus.level===1 && focus.main===id){ resetToMains(); return; }
   focusToMain(id);
+
 }
 function onSubClick(mainId, subIndex){
   const m = DATA.find(d=>d.id===mainId);
@@ -469,77 +542,7 @@ for(let i=0;i<n;i++){
     g.appendChild(el('circle',{class:'ring', r:L1_R+6}));
     const b = el('g',{class:'bubble'});
     b.appendChild(el('circle',{r:L1_R, fill:shade(m.color,-6)}));
-/* ------------------ CAMERA / VIEWBOX ZOOM ------------------ */
-const svg = document.querySelector('svg');
-const BASE_VB = { x: 0, y: -60, w: 1000, h: 820 }; // match your SVG viewBox
 
-// if you didn't change your viewBox yet, set this to {x:0,y:0,w:1000,h:700}
-// but I recommend the padded one above.
-
-let vb = { ...BASE_VB };
-let vbAnim = null;
-
-function setViewBoxNow(v){
-  vb = { ...v };
-  svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
-}
-
-function animateViewBox(target, ms=320){
-  if(vbAnim) cancelAnimationFrame(vbAnim);
-
-  const start = { ...vb };
-  const t0 = performance.now();
-
-  const ease = (t)=> t<0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2; // easeInOutCubic
-
-  const step = (now)=>{
-    const p = Math.min(1, (now - t0) / ms);
-    const e = ease(p);
-
-    const cur = {
-      x: start.x + (target.x - start.x) * e,
-      y: start.y + (target.y - start.y) * e,
-      w: start.w + (target.w - start.w) * e,
-      h: start.h + (target.h - start.h) * e
-    };
-    setViewBoxNow(cur);
-
-    if(p < 1) vbAnim = requestAnimationFrame(step);
-  };
-  vbAnim = requestAnimationFrame(step);
-}
-
-// Compute a viewBox centered on (cx,cy) with zoom factor z (z>1 zooms in)
-function zoomToPoint(cx, cy, z){
-  const isPhone = window.matchMedia('(max-width: 640px)').matches;
-
-  // Stronger zoom on phones
-  const zoom = isPhone ? z * 1.25 : z;
-
-  const w = BASE_VB.w / zoom;
-  const h = BASE_VB.h / zoom;
-
-  // keep centered, but clamp so you don't pan outside the base bounds
-  let x = cx - w/2;
-  let y = cy - h/2;
-
-  const minX = BASE_VB.x;
-  const maxX = BASE_VB.x + BASE_VB.w - w;
-  const minY = BASE_VB.y;
-  const maxY = BASE_VB.y + BASE_VB.h - h;
-
-  x = Math.max(minX, Math.min(maxX, x));
-  y = Math.max(minY, Math.min(maxY, y));
-
-  animateViewBox({ x, y, w, h }, 340);
-}
-
-function resetZoom(){
-  animateViewBox(BASE_VB, 340);
-}
-
-// Initialize viewBox to base (important)
-setViewBoxNow(BASE_VB);
   
 
   
@@ -600,6 +603,10 @@ zoomToPoint(CENTER.x, CENTER.y, 2.6);
     g.appendChild(el('circle',{class:'ring', r:L2_R+6}));
     const b = el('g',{class:'bubble'});
     b.appendChild(el('circle',{r:L2_R, fill:shade(m.color,8)}));
+    
+
+
+    
 const tChild = el('text', { class:'label' });
 wrapCircleLabel(tChild, chosen.children[i].label, L2_R * 1.8, 19, 10, 3, 15);
 b.appendChild(tChild);
@@ -794,12 +801,13 @@ function goBack(){
   }
   if(focus.level===1){
     resetToMains();
-    resetZoom();
+    //resetZoom();
     return;
   }
 }
 
 function resetToMains(){
+  resetZoom();
   gL1.innerHTML=''; gL2.innerHTML=''; gUI.innerHTML='';
   Array.from(gMains.children).forEach(g=>{
     const id = g.getAttribute('data-id');
