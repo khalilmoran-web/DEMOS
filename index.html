@@ -89,8 +89,18 @@
 
 @media (max-width: 640px){
   .board{ height: 72vh; min-height: 520px; }
-  .label{ font-size: 12px; }
+
+  /* DO NOT globally shrink labels */
+  /* .label{ font-size: 12px; }  <-- remove */
+
+  /* If you want, you can slightly reduce sub/child labels only */
+  .sub .label{ font-size: 14px; }
+  .child .label{ font-size: 13px; }
+
+  /* Make main labels bigger */
+  .main .label{ font-size: 22px; }
 }
+
 
   
 </style>
@@ -510,11 +520,11 @@ const isPhone = window.matchMedia('(max-width: 640px)').matches;
 wrapCircleLabel(
   tMain,
   m.label,
-  MAIN_R * (isPhone ? 1.7 : 1.8), // slightly narrower wrap on phone
-  isPhone ? 34 : 26,             // base font bigger on phone
-  isPhone ? 16 : 14,             // line height
-  4,
-  isPhone ? 24 : 20              // min font bigger on phone
+  MAIN_R * (isPhone ? 1.75 : 1.8),
+  isPhone ? 44 : 26,   // bigger base on phone
+  isPhone ? 18 : 14,
+  6,
+  isPhone ? 28 : 20    // bigger min on phone
 );
 
 b.appendChild(tMain);
